@@ -1,0 +1,128 @@
+// Schema para Sistema de Vendas de Brinquedos
+// Aplicativo para Representantes Comerciais
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Modelo para multitenancy - cada fábrica/tenant
+model Factory {
+  id        String   @id @default(cuid())
+  name      String
+  cnpj      String   @unique
+  email     String
+  phone     String?
+  address   String?
+  city      String?
+  state     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products  Product[]
+  orders    Order[]
+}
+
+// Produtos de brinquedos
+model Product {
+  id          String   @id @default(cuid())
+  factoryId   String
+  name        String
+  description String?
+  sku         String   @unique
+  category    String   // Ex: Bonecos, Jogos, Quebra-cabeça, Pelúcias, etc.
+  ageRange    String?  // Ex: "3-5 anos", "6-8 anos"
+  price       Float
+  stock       Int      @default(0)
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  factory     Factory     @relation(fields: [factoryId], references: [id], onDelete: Cascade)
+  orderItems  OrderItem[]
+
+  @@index([factoryId])
+  @@index([category])
+}
+
+// Clientes (lojas, distribuidores, etc.)
+model Customer {
+  id          String   @id @default(cuid())
+  name        String
+  email       String?
+  phone       String
+  cnpj        String   @unique
+  address     String?
+  city        String?
+  state       String?
+  tradeName   String?  // Nome fantasia
+  contactName String?  // Nome do contato principal
+  isActive    Boolean  @default(true)
+  notes       String?  // Observações
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders      Order[]
+
+  @@index([name])
+  @@index([city])
+}
+
+// Pedidos de venda
+model Order {
+  id                String      @id @default(cuid())
+  orderNumber       String      @unique
+  customerId        String
+  factoryId         String
+  status            OrderStatus @default(PENDING)
+  subtotal          Float
+  discount          Float       @default(0)
+  total             Float
+  deliveryDate      DateTime?
+  deliveryAddress   String?
+  notes             String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  customer          Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  factory           Factory     @relation(fields: [factoryId], references: [id], onDelete: Restrict)
+  items             OrderItem[]
+
+  @@index([customerId])
+  @@index([factoryId])
+  @@index([status])
+  @@index([orderNumber])
+}
+
+// Itens do pedido
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  productId   String
+  quantity    Int
+  unitPrice   Float
+  totalPrice  Float
+  createdAt   DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// Enum para status do pedido
+enum OrderStatus {
+  PENDING     // Aguardando confirmação
+  CONFIRMED   // Pedido confirmado
+  PROCESSING  // Em processamento
+  SHIPPED     // Enviado
+  DELIVERED   // Entregue
+  CANCELLED   // Cancelado
+}
