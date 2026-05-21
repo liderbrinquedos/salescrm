@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from 'sonner'
 import { useCartStore, CartItem } from '@/store/cart-store'
-import { ShoppingCart, Package, Users, FileText, Search, Plus, Minus, Trash2, Store, Calendar, Filter, ShoppingBag, TrendingUp } from 'lucide-react'
+import { ShoppingCart, Package, Users, FileText, Search, Plus, Minus, Trash2, Store, Calendar, Filter, ShoppingBag, TrendingUp, Percent } from 'lucide-react'
 
 // Types
 interface Product {
@@ -118,6 +118,8 @@ export default function Home() {
   const [orderNotes, setOrderNotes] = useState('')
   const [loading, setLoading] = useState(true)
   const [isSeeded, setIsSeeded] = useState(false)
+  const [discountType, setDiscountType] = useState<'fixed' | 'percentage'>('percentage')
+  const [discountValue, setDiscountValue] = useState<number>(0)
 
   // Cart store
   const { items, totalItems, totalValue, addItem, updateQuantity, removeItem, clearCart } = useCartStore()
@@ -224,6 +226,14 @@ export default function Home() {
     }
 
     try {
+      // Calculate discount based on type
+      let finalDiscount = 0
+      if (discountType === 'percentage') {
+        finalDiscount = totalValue * (discountValue / 100)
+      } else {
+        finalDiscount = discountValue
+      }
+
       const orderData = {
         customerId: selectedCustomer,
         factoryId: items[0].factoryId,
@@ -233,6 +243,7 @@ export default function Home() {
           unitPrice: item.unitPrice,
         })),
         notes: orderNotes,
+        discount: finalDiscount,
       }
 
       const res = await fetch('/api/orders', {
@@ -457,6 +468,41 @@ export default function Home() {
                                 rows={3}
                               />
                             </div>
+
+                            <Separator />
+
+                            <div className="space-y-3">
+                              <Label>Desconto</Label>
+                              <div className="flex gap-2">
+                                <Select value={discountType} onValueChange={(value: 'fixed' | 'percentage') => setDiscountType(value)}>
+                                  <SelectTrigger className="w-32">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="percentage">%</SelectItem>
+                                    <SelectItem value="fixed">R$</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Input
+                                  type="number"
+                                  placeholder="0,00"
+                                  min="0"
+                                  step={discountType === 'percentage' ? '1' : '0.01'}
+                                  max={discountType === 'percentage' ? '100' : undefined}
+                                  value={discountValue || ''}
+                                  onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                                  className="flex-1"
+                                />
+                              </div>
+                              {discountValue > 0 && (
+                                <p className="text-sm text-muted-foreground">
+                                  {discountType === 'percentage' 
+                                    ? `Desconto de ${discountValue}% = R$ ${(totalValue * (discountValue / 100)).toFixed(2)}`
+                                    : `Desconto de R$ ${discountValue.toFixed(2)}`
+                                  }
+                                </p>
+                              )}
+                            </div>
                             <Card>
                               <CardContent className="pt-4">
                                 <div className="space-y-2">
@@ -464,10 +510,29 @@ export default function Home() {
                                     <span>Itens:</span>
                                     <span>{totalItems}</span>
                                   </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span>Subtotal:</span>
+                                    <span>R$ {totalValue.toFixed(2)}</span>
+                                  </div>
+                                  {discountValue > 0 && (
+                                    <>
+                                      <div className="flex justify-between text-sm text-green-600">
+                                        <span>Desconto:</span>
+                                        <span>
+                                          {discountType === 'percentage' 
+                                            ? `${discountValue}% (R$ ${(totalValue * (discountValue / 100)).toFixed(2)})`
+                                            : `R$ ${discountValue.toFixed(2)}`
+                                          }
+                                        </span>
+                                      </div>
+                                    </>
+                                  )}
                                   <Separator />
                                   <div className="flex justify-between font-bold text-lg">
                                     <span>Total:</span>
-                                    <span className="text-orange-600">R$ {totalValue.toFixed(2)}</span>
+                                    <span className="text-orange-600">
+                                      R$ {(totalValue - (discountType === 'percentage' ? totalValue * (discountValue / 100) : discountValue)).toFixed(2)}
+                                    </span>
                                   </div>
                                 </div>
                               </CardContent>
@@ -708,6 +773,7 @@ export default function Home() {
                     <TableHead>Fábrica</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Desconto</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -742,8 +808,26 @@ export default function Home() {
                           </SelectContent>
                         </Select>
                       </TableCell>
+                      <TableCell className="text-right">
+                        {order.discount > 0 ? (
+                          <span className="text-green-600 font-semibold">
+                            -R$ {order.discount.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right font-semibold">
-                        R$ {order.total.toFixed(2)}
+                        <div>
+                          {order.discount > 0 && (
+                            <span className="text-xs text-muted-foreground line-through mr-2">
+                              R$ {order.subtotal.toFixed(2)}
+                            </span>
+                          )}
+                          <span className={order.discount > 0 ? 'text-green-600' : ''}>
+                            R$ {order.total.toFixed(2)}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="sm">Detalhes</Button>
@@ -835,8 +919,18 @@ export default function Home() {
                             <p className="text-sm text-muted-foreground">{order.customer.name}</p>
                           </div>
                           <div className="text-right">
-                            <p className="font-semibold text-orange-600">
+                            {order.discount > 0 && (
+                              <p className="text-xs text-muted-foreground line-through">
+                                R$ {order.subtotal.toFixed(2)}
+                              </p>
+                            )}
+                            <p className={`font-semibold ${order.discount > 0 ? 'text-green-600' : 'text-orange-600'}`}>
                               R$ {order.total.toFixed(2)}
+                              {order.discount > 0 && (
+                                <span className="text-xs ml-1 text-green-600">
+                                  (-R$ {order.discount.toFixed(2)})
+                                </span>
+                              )}
                             </p>
                             <Badge className={getStatusBadgeColor(order.status)} variant="secondary">
                               {getStatusLabel(order.status)}
