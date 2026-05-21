@@ -40,6 +40,12 @@ export async function GET(request: NextRequest) {
             name: true,
           },
         },
+        carrier: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         items: {
           include: {
             product: {
@@ -71,7 +77,18 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { customerId, factoryId, items, notes, deliveryDate, deliveryAddress } = body
+    const {
+      customerId,
+      factoryId,
+      items,
+      notes,
+      deliveryDate,
+      deliveryAddress,
+      paymentCondition,
+      carrierId,
+      freightType,
+      freightCost
+    } = body
 
     // Gera número do pedido
     const orderNumber = `PED-${Date.now().toString().slice(-8)}`
@@ -82,7 +99,8 @@ export async function POST(request: NextRequest) {
     }, 0)
 
     const discount = body.discount || 0
-    const total = subtotal - discount
+    const freightCostValue = freightCost || 0
+    const total = subtotal - discount + freightCostValue
 
     // Cria o pedido com os itens
     const order = await db.order.create({
@@ -91,6 +109,10 @@ export async function POST(request: NextRequest) {
         customerId,
         factoryId,
         status: 'PENDING',
+        paymentCondition: paymentCondition || 'CASH',
+        carrierId: carrierId || null,
+        freightType: freightType || 'CIF',
+        freightCost: freightCostValue,
         subtotal,
         discount,
         total,

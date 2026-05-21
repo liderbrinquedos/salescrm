@@ -52,12 +52,31 @@ interface Customer {
   isActive: boolean
 }
 
+interface Carrier {
+  id: string
+  name: string
+  cnpj: string
+  phone: string | null
+  email: string | null
+  trackingUrl: string | null
+  isActive: boolean
+}
+
 interface Order {
   id: string
   orderNumber: string
   customerId: string
   factoryId: string
   status: string
+  paymentCondition: string
+  carrierId: string | null
+  carrier: {
+    id: string
+    name: string
+  } | null
+  freightType: string
+  freightCost: number
+  trackingCode: string | null
   subtotal: number
   discount: number
   total: number
@@ -109,6 +128,7 @@ export default function Home() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [factories, setFactories] = useState<Factory[]>([])
+  const [carriers, setCarriers] = useState<Carrier[]>([])
   const [selectedFactory, setSelectedFactory] = useState<string>('all')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
@@ -120,6 +140,10 @@ export default function Home() {
   const [isSeeded, setIsSeeded] = useState(false)
   const [discountType, setDiscountType] = useState<'fixed' | 'percentage'>('percentage')
   const [discountValue, setDiscountValue] = useState<number>(0)
+  const [paymentCondition, setPaymentCondition] = useState<string>('CASH')
+  const [carrierId, setCarrierId] = useState<string>('')
+  const [freightType, setFreightType] = useState<string>('CIF')
+  const [freightCost, setFreightCost] = useState<number>(0)
 
   // Cart store
   const { items, totalItems, totalValue, addItem, updateQuantity, removeItem, clearCart } = useCartStore()
@@ -144,20 +168,23 @@ export default function Home() {
 
       setIsSeeded(true)
 
-      const [productsRes, customersRes, ordersRes] = await Promise.all([
+      const [productsRes, customersRes, ordersRes, carriersRes] = await Promise.all([
         fetch('/api/products'),
         fetch('/api/customers'),
         fetch('/api/orders'),
+        fetch('/api/carriers'),
       ])
 
       const productsData = await productsRes.json()
       const customersData = await customersRes.json()
       const ordersData = await ordersRes.json()
+      const carriersData = await carriersRes.json()
 
       setProducts(productsData)
       setCustomers(customersData)
       setOrders(ordersData)
       setFactories(factoriesData)
+      setCarriers(carriersData)
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
       toast.error('Erro ao carregar dados')
@@ -244,6 +271,10 @@ export default function Home() {
         })),
         notes: orderNotes,
         discount: finalDiscount,
+        paymentCondition,
+        carrierId: carrierId || null,
+        freightType,
+        freightCost,
       }
 
       const res = await fetch('/api/orders', {
@@ -259,6 +290,11 @@ export default function Home() {
         setNewOrderOpen(false)
         setSelectedCustomer('')
         setOrderNotes('')
+        setPaymentCondition('CASH')
+        setCarrierId('')
+        setFreightType('CIF')
+        setFreightCost(0)
+        setDiscountValue(0)
         loadData()
       } else {
         toast.error('Erro ao criar pedido')
@@ -312,6 +348,29 @@ export default function Home() {
       CANCELLED: 'Cancelado',
     }
     return labels[status] || status
+  }
+
+  const getPaymentConditionLabel = (condition: string) => {
+    const labels: Record<string, string> = {
+      CASH: 'À vista',
+      THIRTY_DAYS: '30 dias',
+      FORTY_FIVE_DAYS: '45 dias',
+      SIXTY_DAYS: '60 dias',
+      NINETY_DAYS: '90 dias',
+      THIRTY_SIXTY: '30/60',
+      THIRTY_SIXTY_NINETY: '30/60/90',
+      THIRTY_SIXTY_NINETY_HUNDRED_TWENTY: '30/60/90/120',
+    }
+    return labels[condition] || condition
+  }
+
+  const getFreightTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      CIF: 'CIF',
+      FOB: 'FOB',
+      FREE: 'Grátis',
+    }
+    return labels[type] || type
   }
 
   if (!isSeeded) {
@@ -471,6 +530,74 @@ export default function Home() {
 
                             <Separator />
 
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <Label htmlFor="paymentCondition">Condição de Pagamento</Label>
+                                <Select value={paymentCondition} onValueChange={setPaymentCondition}>
+                                  <SelectTrigger id="paymentCondition">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="CASH">À vista</SelectItem>
+                                    <SelectItem value="THIRTY_DAYS">30 dias</SelectItem>
+                                    <SelectItem value="FORTY_FIVE_DAYS">45 dias</SelectItem>
+                                    <SelectItem value="SIXTY_DAYS">60 dias</SelectItem>
+                                    <SelectItem value="NINETY_DAYS">90 dias</SelectItem>
+                                    <SelectItem value="THIRTY_SIXTY">30/60</SelectItem>
+                                    <SelectItem value="THIRTY_SIXTY_NINETY">30/60/90</SelectItem>
+                                    <SelectItem value="THIRTY_SIXTY_NINETY_HUNDRED_TWENTY">30/60/90/120</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor="freightType">Tipo de Frete</Label>
+                                  <Select value={freightType} onValueChange={setFreightType}>
+                                    <SelectTrigger id="freightType">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="CIF">CIF (Pago pelo vendedor)</SelectItem>
+                                      <SelectItem value="FOB">FOB (Pago pelo comprador)</SelectItem>
+                                      <SelectItem value="FREE">Frete Grátis</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="carrier">Transportadora</Label>
+                                  <Select value={carrierId} onValueChange={setCarrierId}>
+                                    <SelectTrigger id="carrier">
+                                      <SelectValue placeholder="Sem transportadora" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {carriers.map((carrier) => (
+                                        <SelectItem key={carrier.id} value={carrier.id}>
+                                          {carrier.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label htmlFor="freightCost">Valor do Frete</Label>
+                                <Input
+                                  id="freightCost"
+                                  type="number"
+                                  placeholder="0,00"
+                                  min="0"
+                                  step="0.01"
+                                  value={freightCost || ''}
+                                  onChange={(e) => setFreightCost(parseFloat(e.target.value) || 0)}
+                                />
+                              </div>
+                            </div>
+
+                            <Separator />
+
                             <div className="space-y-3">
                               <Label>Desconto</Label>
                               <div className="flex gap-2">
@@ -519,7 +646,7 @@ export default function Home() {
                                       <div className="flex justify-between text-sm text-green-600">
                                         <span>Desconto:</span>
                                         <span>
-                                          {discountType === 'percentage' 
+                                          {discountType === 'percentage'
                                             ? `${discountValue}% (R$ ${(totalValue * (discountValue / 100)).toFixed(2)})`
                                             : `R$ ${discountValue.toFixed(2)}`
                                           }
@@ -527,11 +654,17 @@ export default function Home() {
                                       </div>
                                     </>
                                   )}
+                                  {freightCost > 0 && (
+                                    <div className="flex justify-between text-sm text-blue-600">
+                                      <span>Frete:</span>
+                                      <span>R$ {freightCost.toFixed(2)}</span>
+                                    </div>
+                                  )}
                                   <Separator />
                                   <div className="flex justify-between font-bold text-lg">
                                     <span>Total:</span>
                                     <span className="text-orange-600">
-                                      R$ {(totalValue - (discountType === 'percentage' ? totalValue * (discountValue / 100) : discountValue)).toFixed(2)}
+                                      R$ {(totalValue - (discountType === 'percentage' ? totalValue * (discountValue / 100) : discountValue) + freightCost).toFixed(2)}
                                     </span>
                                   </div>
                                 </div>
@@ -771,6 +904,9 @@ export default function Home() {
                     <TableHead>Número</TableHead>
                     <TableHead>Cliente</TableHead>
                     <TableHead>Fábrica</TableHead>
+                    <TableHead>Pagamento</TableHead>
+                    <TableHead>Transportadora</TableHead>
+                    <TableHead>Frete</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Desconto</TableHead>
@@ -789,6 +925,28 @@ export default function Home() {
                         </div>
                       </TableCell>
                       <TableCell>{order.factory.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {getPaymentConditionLabel(order.paymentCondition)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {order.carrier ? (
+                          <Badge variant="secondary" className="text-xs">
+                            {order.carrier.name}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <div className="font-medium">{getFreightTypeLabel(order.freightType)}</div>
+                          {order.freightCost > 0 && (
+                            <div className="text-xs text-blue-600">R$ {order.freightCost.toFixed(2)}</div>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>{new Date(order.createdAt).toLocaleDateString('pt-BR')}</TableCell>
                       <TableCell>
                         <Select

@@ -282,11 +282,60 @@ export async function POST(request: NextRequest) {
       }),
     ])
 
+    // Criar transportadoras
+    const carriers = await Promise.all([
+      db.carrier.create({
+        data: {
+          name: 'Correios',
+          cnpj: '34.028.316/0001-03',
+          phone: '(11) 3003-0100',
+          email: 'contato@correios.com.br',
+          trackingUrl: 'https://www.correios.com.br/rastreamento/',
+          notes: 'Transportadora oficial',
+          isActive: true,
+        },
+      }),
+      db.carrier.create({
+        data: {
+          name: 'Jadlog',
+          cnpj: '04.164.253/0001-10',
+          phone: '(11) 3346-2000',
+          email: 'jadlog@jadlog.com.br',
+          trackingUrl: 'https://www.jadlog.com.br/tracking',
+          notes: 'Transporte rápido',
+          isActive: true,
+        },
+      }),
+      db.carrier.create({
+        data: {
+          name: 'Sedex',
+          cnpj: '00.000.000/0001-91',
+          phone: '(11) 3003-0100',
+          email: 'sedex@correios.com.br',
+          trackingUrl: 'https://www.correios.com.br/rastreamento/',
+          notes: 'Entrega expressa',
+          isActive: true,
+        },
+      }),
+      db.carrier.create({
+        data: {
+          name: 'Transportadora Brinquedos Express',
+          cnpj: '55.666.777/0001-88',
+          phone: '(41) 3456-7890',
+          email: 'vendas@brinquedosexpress.com.br',
+          trackingUrl: null,
+          notes: 'Especializada em brinquedos',
+          isActive: true,
+        },
+      }),
+    ])
+
     return NextResponse.json({
       message: 'Dados mock criados com sucesso!',
       factories: factories.length,
       products: products.length,
       customers: customers.length,
+      carriers: carriers.length,
     })
   } catch (error) {
     console.error('Erro ao criar dados mock:', error)

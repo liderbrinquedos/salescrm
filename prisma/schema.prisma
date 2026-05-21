@@ -74,28 +74,53 @@ model Customer {
   @@index([city])
 }
 
+// Transportadoras
+model Carrier {
+  id          String   @id @default(cuid())
+  name        String
+  cnpj        String   @unique
+  phone       String?
+  email       String?
+  trackingUrl String?  // URL base para rastreamento (ex: https://www.correios.com.br/rastreamento/)
+  isActive    Boolean  @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders      Order[]
+
+  @@index([name])
+}
+
 // Pedidos de venda
 model Order {
-  id                String      @id @default(cuid())
-  orderNumber       String      @unique
+  id                String             @id @default(cuid())
+  orderNumber       String             @unique
   customerId        String
   factoryId         String
-  status            OrderStatus @default(PENDING)
+  status            OrderStatus        @default(PENDING)
+  paymentCondition  PaymentCondition   @default(CASH)
+  carrierId         String?
+  freightType       FreightType        @default(CIF)
+  freightCost       Float              @default(0)
   subtotal          Float
-  discount          Float       @default(0)
+  discount          Float              @default(0)
   total             Float
   deliveryDate      DateTime?
   deliveryAddress   String?
+  trackingCode      String?            // Código de rastreamento
   notes             String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   customer          Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
   factory           Factory     @relation(fields: [factoryId], references: [id], onDelete: Restrict)
+  carrier           Carrier?    @relation(fields: [carrierId], references: [id], onDelete: SetNull)
   items             OrderItem[]
 
   @@index([customerId])
   @@index([factoryId])
+  @@index([carrierId])
   @@index([status])
   @@index([orderNumber])
 }
@@ -125,4 +150,23 @@ enum OrderStatus {
   SHIPPED     // Enviado
   DELIVERED   // Entregue
   CANCELLED   // Cancelado
+}
+
+// Enum para condição de pagamento
+enum PaymentCondition {
+  CASH           // À vista
+  THIRTY_DAYS    // 30 dias
+  FORTY_FIVE_DAYS // 45 dias
+  SIXTY_DAYS     // 60 dias
+  NINETY_DAYS    // 90 dias
+  THIRTY_SIXTY   // 30/60
+  THIRTY_SIXTY_NINETY // 30/60/90
+  THIRTY_SIXTY_NINETY_HUNDRED_TWENTY // 30/60/90/120
+}
+
+// Enum para tipo de frete
+enum FreightType {
+  CIF   // Cost, Insurance and Freight (Frete pago pelo vendedor)
+  FOB   // Free on Board (Frete pago pelo comprador)
+  FREE  // Frete grátis
 }

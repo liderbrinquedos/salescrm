@@ -14,6 +14,7 @@ export async function GET(
       include: {
         customer: true,
         factory: true,
+        carrier: true,
         items: {
           include: {
             product: true,
@@ -52,6 +53,11 @@ export async function PATCH(
       where: { id },
       data: {
         status: body.status,
+        paymentCondition: body.paymentCondition,
+        carrierId: body.carrierId,
+        freightType: body.freightType,
+        freightCost: body.freightCost,
+        trackingCode: body.trackingCode,
         notes: body.notes,
         deliveryDate: body.deliveryDate ? new Date(body.deliveryDate) : undefined,
         deliveryAddress: body.deliveryAddress,
@@ -59,6 +65,7 @@ export async function PATCH(
       include: {
         customer: true,
         factory: true,
+        carrier: true,
         items: {
           include: {
             product: true,
