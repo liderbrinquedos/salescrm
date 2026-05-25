@@ -325,7 +325,7 @@ services:
 ## Próximos Passos (Roadmap)
 
 1. **Auth** — NextAuth.js para login de representantes
-2. **Order Details** — Dialog com todos os dados do pedido (rastreamento, timeline)
+2. ~~**Order Details** — Dialog com todos os dados do pedido (rastreamento, timeline)~~ **Implementado** — Ver [[decisions/003-order-details-dialog]]
 3. **Imagens Produto** — Upload/gestão de imagens
 4. **PDF/Email** — Geração de proposta PDF e envio por email
 5. **Dashboard Avançado** — Gráficos de vendas por fábrica/período
@@ -339,4 +339,6 @@ services:
 - [[patterns/business-rules-engine]]
 - [[patterns/checkout-flow]]
 - [[decisions/001-docker-containerization]]
+- [[decisions/002-checkout-discount-breakdown]]
+- [[decisions/003-order-details-dialog]]
 - [[integrations/sankhya]]

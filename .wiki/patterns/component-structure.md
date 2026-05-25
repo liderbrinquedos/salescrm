@@ -2,7 +2,7 @@
 
 > **Categoria:** frontend-architecture  
 > **Complexidade:** media  
-> **Última revisão:** 2026-05-21
+> **Última revisão:** 2026-05-25
 
 ## Quando Usar
 
@@ -75,10 +75,15 @@ src/
 ## Exemplo no Projeto
 
 - Atualmente o `src/app/page.tsx` é monolítico (~1150 linhas). Será refatorado para extrair:
-  - `features/catalog/components/ProductGrid.tsx`
-  - `features/catalog/components/ProductCard.tsx`
-  - `features/orders/components/OrderSheet.tsx`
-  - etc.
+- `features/catalog/components/ProductGrid.tsx`
+- `features/catalog/components/ProductCard.tsx`
+- `features/orders/components/OrderSheet.tsx`
+- etc.
+
+### Componentes já extraídos
+
+- `src/features/orders/components/OrderSummary.tsx` — Resumo do pedido com breakdown de descontos (accordion)
+- `src/features/orders/components/OrderDetailsDialog.tsx` — Dialog de detalhes/edição de pedido (2 tabs, stepper, dirty check)
 
 ## Links Relacionados
 

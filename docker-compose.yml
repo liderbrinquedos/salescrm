@@ -1,0 +1,15 @@
+services:
+  salescrm:
+    build: .
+    container_name: salescrm
+    ports:
+      - "3080:3000"
+    volumes:
+      - sqlite-data:/app/db
+    environment:
+      - DATABASE_URL=file:/app/db/custom.db
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  sqlite-data:

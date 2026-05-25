@@ -8,15 +8,18 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter, SheetDescription } from '@/components/ui/sheet'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from '@/components/ui/sheet'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from 'sonner'
 import { useCartStore, CartItem } from '@/store/cart-store'
-import { ShoppingCart, Package, Users, FileText, Search, Plus, Minus, Trash2, Store, Calendar, Filter, ShoppingBag, TrendingUp, Percent } from 'lucide-react'
+import { useBusinessRules } from '@/lib/business-rules'
+import { AdvancedSettings } from '@/components/business-rules/advanced-settings'
+import { OrderSummary } from '@/features/orders/components/OrderSummary'
+import { OrderDetailsDialog } from '@/features/orders/components/OrderDetailsDialog'
+import { ShoppingCart, Package, Users, FileText, Search, Plus, Minus, Trash2, Store, Calendar, Filter, ShoppingBag, TrendingUp, Percent, Sparkles, ArrowLeft } from 'lucide-react'
 
 // Types
 interface Product {
@@ -133,7 +136,7 @@ export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [cartOpen, setCartOpen] = useState(false)
-  const [newOrderOpen, setNewOrderOpen] = useState(false)
+  const [checkoutStep, setCheckoutStep] = useState<'cart' | 'order'>('cart')
   const [selectedCustomer, setSelectedCustomer] = useState<string>('')
   const [orderNotes, setOrderNotes] = useState('')
   const [loading, setLoading] = useState(true)
@@ -144,9 +147,27 @@ export default function Home() {
   const [carrierId, setCarrierId] = useState<string>('')
   const [freightType, setFreightType] = useState<string>('CIF')
   const [freightCost, setFreightCost] = useState<number>(0)
+  const [activeTab, setActiveTab] = useState('catalog')
+  const [orderDetailId, setOrderDetailId] = useState<string | null>(null)
+  const [orderDetailOpen, setOrderDetailOpen] = useState(false)
 
   // Cart store
   const { items, totalItems, totalValue, addItem, updateQuantity, removeItem, clearCart } = useCartStore()
+
+  // Business rules engine
+  const {
+    processCart,
+    hasActiveRules,
+    enabledRules,
+    rules: businessRules,
+    addRule,
+    updateRule,
+    removeRule,
+    toggleRule,
+    duplicateRule,
+    resetToDefaults,
+  } = useBusinessRules()
+  const [rulesResult, setRulesResult] = useState<any>(null)
 
   // Load data
   useEffect(() => {
@@ -223,6 +244,31 @@ export default function Home() {
   // Get unique categories
   const categories = Array.from(new Set(products.map((p) => p.category)))
 
+  // Process business rules when cart changes
+  useEffect(() => {
+    if (hasActiveRules && items.length > 0) {
+      const context = {
+        cartItems: items.map((item) => ({
+          productId: item.productId,
+          productName: item.productName,
+          productSku: item.productSku,
+          factoryId: item.factoryId,
+          category: item.category,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        })),
+        orderSubtotal: totalValue,
+        paymentCondition,
+        freightType,
+        freightCost,
+      }
+      const result = processCart(context)
+      setRulesResult(result)
+    } else {
+      setRulesResult(null)
+    }
+  }, [items, totalValue, paymentCondition, freightType, freightCost, hasActiveRules, processCart])
+
   // Add to cart
   const handleAddToCart = (product: Product) => {
     addItem({
@@ -235,7 +281,7 @@ export default function Home() {
       category: product.category,
       quantity: 1,
       unitPrice: product.price,
-      imageUrl: product.imageUrl,
+      imageUrl: product.imageUrl || undefined,
     })
     toast.success(`${product.name} adicionado ao carrinho`)
   }
@@ -253,12 +299,36 @@ export default function Home() {
     }
 
     try {
-      // Calculate discount based on type
+      // Calculate discount - use business rules if available
       let finalDiscount = 0
-      if (discountType === 'percentage') {
-        finalDiscount = totalValue * (discountValue / 100)
+      if (rulesResult) {
+        // Use business rules engine result
+        finalDiscount = rulesResult.discount
       } else {
-        finalDiscount = discountValue
+        // Fall back to manual discount
+        if (discountType === 'percentage') {
+          finalDiscount = totalValue * (discountValue / 100)
+        } else {
+          finalDiscount = discountValue
+        }
+      }
+
+      // If business rules applied free shipping, set freight to 0
+      const finalFreightCost = rulesResult?.freeShipping ? 0 : freightCost
+
+      let discountBreakdown: string | null = null
+      if (rulesResult && rulesResult.appliedRules.length > 0) {
+        discountBreakdown = JSON.stringify({
+          totalDiscount: rulesResult.discount,
+          appliedRules: rulesResult.appliedRules.map((rule: any) => ({
+            ruleId: rule.ruleId,
+            ruleName: rule.ruleName,
+            ruleType: rule.ruleType,
+            discountAmount: rule.discountAmount,
+            discountType: rule.discountType,
+            itemAllocations: rule.itemAllocations,
+          })),
+        })
       }
 
       const orderData = {
@@ -271,10 +341,11 @@ export default function Home() {
         })),
         notes: orderNotes,
         discount: finalDiscount,
+        discountBreakdown,
         paymentCondition,
         carrierId: carrierId || null,
         freightType,
-        freightCost,
+        freightCost: finalFreightCost,
       }
 
       const res = await fetch('/api/orders', {
@@ -287,7 +358,8 @@ export default function Home() {
         const newOrder = await res.json()
         toast.success('Pedido criado com sucesso!')
         clearCart()
-        setNewOrderOpen(false)
+        setCheckoutStep('cart')
+        setCartOpen(false)
         setSelectedCustomer('')
         setOrderNotes('')
         setPaymentCondition('CASH')
@@ -295,6 +367,7 @@ export default function Home() {
         setFreightType('CIF')
         setFreightCost(0)
         setDiscountValue(0)
+        setActiveTab('orders')
         loadData()
       } else {
         toast.error('Erro ao criar pedido')
@@ -406,7 +479,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-orange-50 via-white to-purple-50">
       {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
+       <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -414,14 +487,22 @@ export default function Home() {
                 <ShoppingBag className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-orange-600 to-purple-600 bg-clip-text text-transparent">
-                  Brinquedos CRM
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-orange-600 to-purple-600 bg-clip-text text-transparent">
+                    Brinquedos CRM
+                  </h1>
+                  {hasActiveRules && (
+                    <Badge className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs">
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      {enabledRules.length} regra(s) ativa(s)
+                    </Badge>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground">Sistema para Representantes</p>
               </div>
             </div>
 
-            <Sheet open={cartOpen} onOpenChange={setCartOpen}>
+            <Sheet open={cartOpen} onOpenChange={(open) => { setCartOpen(open); if (!open) setCheckoutStep('cart'); }}>
               <SheetTrigger asChild>
                 <Button variant="outline" size="lg" className="relative">
                   <ShoppingCart className="w-5 h-5" />
@@ -434,13 +515,31 @@ export default function Home() {
               </SheetTrigger>
               <SheetContent className="w-full sm:max-w-lg">
                 <SheetHeader>
-                  <SheetTitle>Carrinho de Vendas</SheetTitle>
-                  <SheetDescription>
-                    {items.length === 0 ? 'Seu carrinho está vazio' : `${totalItems} itens no carrinho`}
-                  </SheetDescription>
+                  {checkoutStep === 'cart' ? (
+                    <>
+                      <SheetTitle>Carrinho de Vendas</SheetTitle>
+                      <SheetDescription>
+                        {items.length === 0 ? 'Seu carrinho está vazio' : `${totalItems} itens no carrinho`}
+                      </SheetDescription>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCheckoutStep('cart')}>
+                          <ArrowLeft className="h-4 w-4" />
+                        </Button>
+                        <div>
+                          <SheetTitle>Finalizar Pedido</SheetTitle>
+                          <SheetDescription>
+                            Selecione o cliente e finalize o pedido
+                          </SheetDescription>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </SheetHeader>
 
-                {items.length > 0 && (
+                {checkoutStep === 'cart' && items.length > 0 && (
                   <div className="flex flex-col h-full py-6">
                     <ScrollArea className="flex-1 -mx-6 px-6">
                       <div className="space-y-4">
@@ -488,200 +587,174 @@ export default function Home() {
                         <span className="text-orange-600">R$ {totalValue.toFixed(2)}</span>
                       </div>
 
-                      <Dialog open={newOrderOpen} onOpenChange={setNewOrderOpen}>
-                        <DialogTrigger asChild>
-                          <Button className="w-full" size="lg" onClick={() => setCartOpen(false)}>
-                            Finalizar Pedido
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-md">
-                          <DialogHeader>
-                            <DialogTitle>Finalizar Pedido</DialogTitle>
-                            <DialogDescription>
-                              Selecione o cliente e adicione observações se necessário
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-4 py-4">
+                      <Button className="w-full" size="lg" onClick={() => setCheckoutStep('order')}>
+                        Finalizar Pedido
+                      </Button>
+
+                      <Button variant="outline" className="w-full" onClick={() => clearCart()}>
+                        Limpar Carrinho
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {checkoutStep === 'order' && (
+                  <div className="flex flex-col h-full">
+                    <ScrollArea className="flex-1 -mx-6 px-6">
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="customer">Cliente *</Label>
+                          <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+                            <SelectTrigger id="customer">
+                              <SelectValue placeholder="Selecione um cliente" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {customers.map((customer) => (
+                                <SelectItem key={customer.id} value={customer.id}>
+                                  {customer.name} - {customer.city}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="notes">Observações</Label>
+                          <Textarea
+                            id="notes"
+                            placeholder="Adicione observações ao pedido..."
+                            value={orderNotes}
+                            onChange={(e) => setOrderNotes(e.target.value)}
+                            rows={2}
+                          />
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="paymentCondition">Condição de Pagamento</Label>
+                            <Select value={paymentCondition} onValueChange={setPaymentCondition}>
+                              <SelectTrigger id="paymentCondition">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="CASH">À vista</SelectItem>
+                                <SelectItem value="THIRTY_DAYS">30 dias</SelectItem>
+                                <SelectItem value="FORTY_FIVE_DAYS">45 dias</SelectItem>
+                                <SelectItem value="SIXTY_DAYS">60 dias</SelectItem>
+                                <SelectItem value="NINETY_DAYS">90 dias</SelectItem>
+                                <SelectItem value="THIRTY_SIXTY">30/60</SelectItem>
+                                <SelectItem value="THIRTY_SIXTY_NINETY">30/60/90</SelectItem>
+                                <SelectItem value="THIRTY_SIXTY_NINETY_HUNDRED_TWENTY">30/60/90/120</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                              <Label htmlFor="customer">Cliente *</Label>
-                              <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-                                <SelectTrigger id="customer">
-                                  <SelectValue placeholder="Selecione um cliente" />
+                              <Label htmlFor="freightType">Tipo de Frete</Label>
+                              <Select value={freightType} onValueChange={setFreightType}>
+                                <SelectTrigger id="freightType">
+                                  <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {customers.map((customer) => (
-                                    <SelectItem key={customer.id} value={customer.id}>
-                                      {customer.name} - {customer.city}
+                                  <SelectItem value="CIF">CIF (Pago pelo vendedor)</SelectItem>
+                                  <SelectItem value="FOB">FOB (Pago pelo comprador)</SelectItem>
+                                  <SelectItem value="FREE">Frete Grátis</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label htmlFor="carrier">Transportadora</Label>
+                              <Select value={carrierId} onValueChange={setCarrierId}>
+                                <SelectTrigger id="carrier">
+                                  <SelectValue placeholder="Sem transportadora" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {carriers.map((carrier) => (
+                                    <SelectItem key={carrier.id} value={carrier.id}>
+                                      {carrier.name}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="notes">Observações</Label>
-                              <Textarea
-                                id="notes"
-                                placeholder="Adicione observações ao pedido..."
-                                value={orderNotes}
-                                onChange={(e) => setOrderNotes(e.target.value)}
-                                rows={3}
-                              />
-                            </div>
-
-                            <Separator />
-
-                            <div className="space-y-4">
-                              <div className="space-y-2">
-                                <Label htmlFor="paymentCondition">Condição de Pagamento</Label>
-                                <Select value={paymentCondition} onValueChange={setPaymentCondition}>
-                                  <SelectTrigger id="paymentCondition">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="CASH">À vista</SelectItem>
-                                    <SelectItem value="THIRTY_DAYS">30 dias</SelectItem>
-                                    <SelectItem value="FORTY_FIVE_DAYS">45 dias</SelectItem>
-                                    <SelectItem value="SIXTY_DAYS">60 dias</SelectItem>
-                                    <SelectItem value="NINETY_DAYS">90 dias</SelectItem>
-                                    <SelectItem value="THIRTY_SIXTY">30/60</SelectItem>
-                                    <SelectItem value="THIRTY_SIXTY_NINETY">30/60/90</SelectItem>
-                                    <SelectItem value="THIRTY_SIXTY_NINETY_HUNDRED_TWENTY">30/60/90/120</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label htmlFor="freightType">Tipo de Frete</Label>
-                                  <Select value={freightType} onValueChange={setFreightType}>
-                                    <SelectTrigger id="freightType">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="CIF">CIF (Pago pelo vendedor)</SelectItem>
-                                      <SelectItem value="FOB">FOB (Pago pelo comprador)</SelectItem>
-                                      <SelectItem value="FREE">Frete Grátis</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label htmlFor="carrier">Transportadora</Label>
-                                  <Select value={carrierId} onValueChange={setCarrierId}>
-                                    <SelectTrigger id="carrier">
-                                      <SelectValue placeholder="Sem transportadora" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {carriers.map((carrier) => (
-                                        <SelectItem key={carrier.id} value={carrier.id}>
-                                          {carrier.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label htmlFor="freightCost">Valor do Frete</Label>
-                                <Input
-                                  id="freightCost"
-                                  type="number"
-                                  placeholder="0,00"
-                                  min="0"
-                                  step="0.01"
-                                  value={freightCost || ''}
-                                  onChange={(e) => setFreightCost(parseFloat(e.target.value) || 0)}
-                                />
-                              </div>
-                            </div>
-
-                            <Separator />
-
-                            <div className="space-y-3">
-                              <Label>Desconto</Label>
-                              <div className="flex gap-2">
-                                <Select value={discountType} onValueChange={(value: 'fixed' | 'percentage') => setDiscountType(value)}>
-                                  <SelectTrigger className="w-32">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="percentage">%</SelectItem>
-                                    <SelectItem value="fixed">R$</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <Input
-                                  type="number"
-                                  placeholder="0,00"
-                                  min="0"
-                                  step={discountType === 'percentage' ? '1' : '0.01'}
-                                  max={discountType === 'percentage' ? '100' : undefined}
-                                  value={discountValue || ''}
-                                  onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
-                                  className="flex-1"
-                                />
-                              </div>
-                              {discountValue > 0 && (
-                                <p className="text-sm text-muted-foreground">
-                                  {discountType === 'percentage' 
-                                    ? `Desconto de ${discountValue}% = R$ ${(totalValue * (discountValue / 100)).toFixed(2)}`
-                                    : `Desconto de R$ ${discountValue.toFixed(2)}`
-                                  }
-                                </p>
-                              )}
-                            </div>
-                            <Card>
-                              <CardContent className="pt-4">
-                                <div className="space-y-2">
-                                  <div className="flex justify-between text-sm">
-                                    <span>Itens:</span>
-                                    <span>{totalItems}</span>
-                                  </div>
-                                  <div className="flex justify-between text-sm">
-                                    <span>Subtotal:</span>
-                                    <span>R$ {totalValue.toFixed(2)}</span>
-                                  </div>
-                                  {discountValue > 0 && (
-                                    <>
-                                      <div className="flex justify-between text-sm text-green-600">
-                                        <span>Desconto:</span>
-                                        <span>
-                                          {discountType === 'percentage'
-                                            ? `${discountValue}% (R$ ${(totalValue * (discountValue / 100)).toFixed(2)})`
-                                            : `R$ ${discountValue.toFixed(2)}`
-                                          }
-                                        </span>
-                                      </div>
-                                    </>
-                                  )}
-                                  {freightCost > 0 && (
-                                    <div className="flex justify-between text-sm text-blue-600">
-                                      <span>Frete:</span>
-                                      <span>R$ {freightCost.toFixed(2)}</span>
-                                    </div>
-                                  )}
-                                  <Separator />
-                                  <div className="flex justify-between font-bold text-lg">
-                                    <span>Total:</span>
-                                    <span className="text-orange-600">
-                                      R$ {(totalValue - (discountType === 'percentage' ? totalValue * (discountValue / 100) : discountValue) + freightCost).toFixed(2)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
                           </div>
-                          <DialogFooter>
-                            <Button variant="outline" onClick={() => setNewOrderOpen(false)}>
-                              Cancelar
-                            </Button>
-                            <Button onClick={handleCreateOrder}>Criar Pedido</Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
 
-                      <Button variant="outline" className="w-full" onClick={() => clearCart()}>
-                        Limpar Carrinho
+                          <div className="space-y-2">
+                            <Label htmlFor="freightCost">Valor do Frete</Label>
+                            <Input
+                              id="freightCost"
+                              type="number"
+                              placeholder="0,00"
+                              min="0"
+                              step="0.01"
+                              value={freightCost || ''}
+                              onChange={(e) => setFreightCost(parseFloat(e.target.value) || 0)}
+                            />
+                          </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-3">
+                          <Label>Desconto</Label>
+                          <div className="flex gap-2">
+                            <Select value={discountType} onValueChange={(value: 'fixed' | 'percentage') => setDiscountType(value)}>
+                              <SelectTrigger className="w-32">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="percentage">%</SelectItem>
+                                <SelectItem value="fixed">R$</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              type="number"
+                              placeholder="0,00"
+                              min="0"
+                              step={discountType === 'percentage' ? '1' : '0.01'}
+                              max={discountType === 'percentage' ? '100' : undefined}
+                              value={discountValue || ''}
+                              onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
+                              className="flex-1"
+                            />
+                          </div>
+                          {discountValue > 0 && (
+                            <p className="text-sm text-muted-foreground">
+                              {discountType === 'percentage'
+                                ? `Desconto de ${discountValue}% = R$ ${(totalValue * (discountValue / 100)).toFixed(2)}`
+                                : `Desconto de R$ ${discountValue.toFixed(2)}`
+                              }
+                            </p>
+                          )}
+                        </div>
+                        <OrderSummary
+                          items={items.map((item: CartItem) => ({
+                            productId: item.productId,
+                            productName: item.productName,
+                            category: item.category,
+                            quantity: item.quantity,
+                            unitPrice: item.unitPrice,
+                            totalPrice: item.totalPrice,
+                          }))}
+                          totalItems={totalItems}
+                          totalValue={totalValue}
+                          rulesResult={rulesResult}
+                          manualDiscount={discountValue > 0 ? { type: discountType, value: discountValue } : undefined}
+                          freightCost={freightCost}
+                          freeShipping={rulesResult?.freeShipping || false}
+                        />
+                      </div>
+                    </ScrollArea>
+
+                    <div className="border-t pt-4 mt-4 flex gap-3">
+                      <Button variant="outline" className="flex-1" onClick={() => setCheckoutStep('cart')}>
+                        Voltar
+                      </Button>
+                      <Button className="flex-1" onClick={handleCreateOrder}>
+                        Criar Pedido
                       </Button>
                     </div>
                   </div>
@@ -694,7 +767,7 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 container mx-auto px-4 py-6">
-        <Tabs defaultValue="catalog" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-grid">
             <TabsTrigger value="catalog" className="gap-2">
               <Package className="w-4 h-4" />
@@ -891,25 +964,25 @@ export default function Home() {
           <TabsContent value="orders" className="space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-bold">Pedidos</h2>
-              <Button onClick={() => { if (items.length > 0) setNewOrderOpen(true) }}>
+              <Button onClick={() => { if (items.length > 0) { setCheckoutStep('order'); setCartOpen(true); } }}>
                 <Plus className="w-4 h-4 mr-2" />
                 Novo Pedido
               </Button>
             </div>
 
-            <div className="rounded-md border bg-white">
+            <div className="rounded-md border bg-white overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Número</TableHead>
                     <TableHead>Cliente</TableHead>
-                    <TableHead>Fábrica</TableHead>
-                    <TableHead>Pagamento</TableHead>
-                    <TableHead>Transportadora</TableHead>
-                    <TableHead>Frete</TableHead>
-                    <TableHead>Data</TableHead>
+                    <TableHead className="hidden md:table-cell">Fábrica</TableHead>
+                    <TableHead className="hidden lg:table-cell">Pagamento</TableHead>
+                    <TableHead className="hidden md:table-cell">Transportadora</TableHead>
+                    <TableCell className="hidden sm:table-cell">Frete</TableCell>
+                    <TableCell className="hidden md:table-cell">Data</TableCell>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Desconto</TableHead>
+                    <TableHead className="hidden lg:table-cell text-right">Desconto</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -924,13 +997,13 @@ export default function Home() {
                           <div className="text-xs text-muted-foreground">{order.customer.city}</div>
                         </div>
                       </TableCell>
-                      <TableCell>{order.factory.name}</TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell">{order.factory.name}</TableCell>
+                      <TableCell className="hidden lg:table-cell">
                         <Badge variant="outline" className="text-xs">
                           {getPaymentConditionLabel(order.paymentCondition)}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell">
                         {order.carrier ? (
                           <Badge variant="secondary" className="text-xs">
                             {order.carrier.name}
@@ -939,7 +1012,7 @@ export default function Home() {
                           <span className="text-muted-foreground text-xs">-</span>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <div className="text-sm">
                           <div className="font-medium">{getFreightTypeLabel(order.freightType)}</div>
                           {order.freightCost > 0 && (
@@ -947,7 +1020,7 @@ export default function Home() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>{new Date(order.createdAt).toLocaleDateString('pt-BR')}</TableCell>
+                      <TableCell className="hidden md:table-cell">{new Date(order.createdAt).toLocaleDateString('pt-BR')}</TableCell>
                       <TableCell>
                         <Select
                           value={order.status}
@@ -966,7 +1039,7 @@ export default function Home() {
                           </SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="hidden lg:table-cell text-right">
                         {order.discount > 0 ? (
                           <span className="text-green-600 font-semibold">
                             -R$ {order.discount.toFixed(2)}
@@ -988,7 +1061,7 @@ export default function Home() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm">Detalhes</Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setOrderDetailId(order.id); setOrderDetailOpen(true) }}>Detalhes</Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1137,6 +1210,28 @@ export default function Home() {
           </TabsContent>
         </Tabs>
       </main>
+
+        {/* Advanced Settings - Business Rules Engine */}
+        <AdvancedSettings
+          rules={businessRules}
+          enabledRules={enabledRules}
+          hasActiveRules={hasActiveRules}
+          addRule={addRule}
+          updateRule={updateRule}
+          removeRule={removeRule}
+          toggleRule={toggleRule}
+          duplicateRule={duplicateRule}
+          resetToDefaults={resetToDefaults}
+          processCart={processCart}
+        />
+
+        <OrderDetailsDialog
+          open={orderDetailOpen}
+          onOpenChange={setOrderDetailOpen}
+          orderId={orderDetailId}
+          onOrderUpdated={loadData}
+          carriers={carriers}
+        />
 
       {/* Footer */}
       <footer className="border-t bg-white/80 backdrop-blur-sm mt-auto">

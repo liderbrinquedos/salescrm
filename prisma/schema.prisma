@@ -105,6 +105,7 @@ model Order {
   freightCost       Float              @default(0)
   subtotal          Float
   discount          Float              @default(0)
+  discountBreakdown String?            // JSON com o breakdown de descontos por item
   total             Float
   deliveryDate      DateTime?
   deliveryAddress   String?

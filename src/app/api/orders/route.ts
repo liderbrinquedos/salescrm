@@ -99,6 +99,7 @@ export async function POST(request: NextRequest) {
     }, 0)
 
     const discount = body.discount || 0
+    const discountBreakdown = body.discountBreakdown || null
     const freightCostValue = freightCost || 0
     const total = subtotal - discount + freightCostValue
 
@@ -115,6 +116,7 @@ export async function POST(request: NextRequest) {
         freightCost: freightCostValue,
         subtotal,
         discount,
+        discountBreakdown,
         total,
         notes,
         deliveryDate: deliveryDate ? new Date(deliveryDate) : null,

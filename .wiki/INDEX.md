@@ -1,7 +1,7 @@
 # .wiki — SalesCRM
 
 > Conhecimento específico do projeto SalesCRM.  
-> **Última atualização:** 2026-05-22
+> **Última atualização:** 2026-05-25
 
 ---
 
@@ -10,6 +10,8 @@
 
 ## Decisões Arquiteturais (ADRs)
 - [[decisions/001-docker-containerization]]
+- [[decisions/002-checkout-discount-breakdown]]
+- [[decisions/003-order-details-dialog]]
 
 ## Patterns do Projeto
 - [[patterns/component-structure]]

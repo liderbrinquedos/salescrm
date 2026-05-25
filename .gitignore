@@ -52,3 +52,9 @@ prompt
 server.log
 # Skills directory
 /skills/
+# database
+*.db
+*.db-journal
+
+# opencode plans
+.opencode/

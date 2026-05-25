@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+build
+.env
+.env.*
+*.log
+dev.log
+server.log
+db/custom.db
+download/
+.zscripts/
+*.tar
+*.tar:Zone.Identifier
+.git
